@@ -192,10 +192,10 @@ export default function CancelDetailsModal({
                 </strong>
               </div>
 
-              <div className="flex items-center space-x-2.5 text-slate-700">
-                <Calendar className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                <span>पंजीकरण दिनांक:</span>
-                <strong className="text-slate-900 font-bold">
+              <div className="flex items-center space-x-2.5 text-slate-700 bg-blue-50/60 p-1.5 rounded-lg border border-blue-200/60">
+                <Calendar className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                <span>बुकिंग दिनांक:</span>
+                <strong className="text-blue-900 font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-blue-200">
                   {slot.preferred_date || (slot.created_at ? slot.created_at.split('T')[0] : 'Today')}
                 </strong>
               </div>

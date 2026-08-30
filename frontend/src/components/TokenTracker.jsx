@@ -320,6 +320,16 @@ export default function TokenTracker({ initialToken, onNavigateToBooking }) {
                 <span className="font-bold text-slate-800">{activeTokenData.farmer_name}</span>
               </div>
 
+              <div className="flex justify-between p-3.5 bg-blue-50/50">
+                <span className="text-slate-600 flex items-center space-x-2 font-semibold">
+                  <Calendar className="w-4 h-4 text-blue-600" />
+                  <span>बुकिंग दिनांक (Booking Date)</span>
+                </span>
+                <span className="font-mono font-black text-blue-900 bg-white border border-blue-300 px-2 py-0.5 rounded shadow-2xs text-xs">
+                  {activeTokenData.preferred_date || (activeTokenData.created_at ? activeTokenData.created_at.split('T')[0] : 'Today')}
+                </span>
+              </div>
+
               <div className="flex justify-between p-3.5">
                 <span className="text-slate-500 flex items-center space-x-2">
                   <Wheat className="w-4 h-4 text-slate-400" />

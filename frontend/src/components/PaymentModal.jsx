@@ -159,9 +159,14 @@ export default function PaymentModal({
               ) : (
                 <p className="text-[11px] text-emerald-300 font-medium">🔒 Phone: Protected</p>
               )}
-              <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 bg-slate-800 text-indigo-300 rounded">
-                Gate: {slot.gate_assigned || 'Gate 1'}
-              </span>
+              <div className="flex flex-col sm:items-end gap-0.5 mt-1">
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-800 text-indigo-300 rounded">
+                  Gate: {slot.gate_assigned || 'Gate 1'}
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-900/80 text-amber-300 rounded border border-indigo-700/50">
+                  📅 {slot.preferred_date || (slot.created_at ? slot.created_at.split('T')[0] : 'Today')}
+                </span>
+              </div>
             </div>
           </div>
         </div>

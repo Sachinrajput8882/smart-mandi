@@ -200,6 +200,20 @@ export default function QueueCard({
           )}
         </div>
 
+        {/* Farmer Scheduled Booking Date (जिस तारीख की बुकिंग है) */}
+        <div className="flex items-center justify-between bg-blue-50/90 border border-blue-200/90 rounded-xl px-2.5 py-1.5 text-xs">
+          <div className="flex items-center space-x-1.5">
+            <Calendar className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+            <span className="text-slate-700 font-bold text-[11px]">बुकिंग तारीख:</span>
+            <strong className="text-blue-950 font-mono font-black text-xs bg-white border border-blue-300 px-2 py-0.5 rounded shadow-2xs">
+              {slot.preferred_date || (slot.created_at ? slot.created_at.split('T')[0] : 'Today')}
+            </strong>
+          </div>
+          <span className="text-[10px] font-extrabold text-blue-800 bg-blue-100 px-2 py-0.5 rounded-md border border-blue-200">
+            {slot.shift === 'shift_2_night' ? '🌙 Night Shift' : '🌅 Day Shift'}
+          </span>
+        </div>
+
         {/* Date Slot & Crop Information Box */}
         <div className="bg-gradient-to-r from-emerald-50/70 via-teal-50/50 to-slate-50 border border-emerald-200/80 rounded-xl p-2.5 space-y-2 mt-1.5 shadow-2xs">
           {/* Row 1: Date Slot and Shift */}

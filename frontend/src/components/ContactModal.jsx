@@ -204,6 +204,10 @@ export default function ContactModal({ slot, isOpen, onClose, onStatusUpdate, is
               )}
               {slot.vehicle_no && <span> • Vehicle: {slot.vehicle_no}</span>}
             </p>
+            <p className="text-slate-600 font-medium mt-1 flex items-center gap-1 text-[11px]">
+              <Calendar className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+              <span>बुकिंग दिनांक: <strong className="font-mono text-blue-950 font-bold bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded">{slot.preferred_date || (slot.created_at ? slot.created_at.split('T')[0] : 'Today')}</strong></span>
+            </p>
           </div>
 
           <div className="text-right">
