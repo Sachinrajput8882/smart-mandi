@@ -75,7 +75,8 @@ export default function App() {
   const fetchQueue = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await api.getQueue();
+      const role = currentUser?.role === 'admin' ? 'admin' : '';
+      const res = await api.getQueue(role);
       setQueue(res.queue || []);
       setSummary(res.summary || { total: 0, waiting: 0, called: 0, processing: 0, done: 0 });
       setLastUpdated(new Date());
@@ -84,7 +85,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUser]);
 
   // Real-time Server-Sent Events (SSE) listener
   useEffect(() => {
@@ -163,8 +164,8 @@ export default function App() {
   };
 
   // Admin action: Update status
-  const handleUpdateStatus = async (tokenId, status) => {
-    const res = await api.updateStatus(tokenId, status);
+  const handleUpdateStatus = async (tokenId, status, reason = '') => {
+    const res = await api.updateStatus(tokenId, status, reason);
     if (status === 'called' && res && res.data) {
       handleAnnounce(res.data);
     }
@@ -175,6 +176,20 @@ export default function App() {
   const handleDeleteSlot = async (tokenId) => {
     await api.deleteSlot(tokenId);
     await fetchQueue();
+  };
+
+  // Admin action: Change farmer gate
+  const handleChangeGate = async (tokenId, newGate) => {
+    const res = await api.changeGate(tokenId, newGate);
+    await fetchQueue();
+    return res;
+  };
+
+  // Admin action: Rebalance waiting gates (>3 waiting)
+  const handleRebalanceGates = async () => {
+    const res = await api.rebalanceGates();
+    await fetchQueue();
+    return res;
   };
 
   // Current active tracked slot for global notification simulation
@@ -263,6 +278,8 @@ export default function App() {
           <BookingForm
             onBookingSuccess={handleBookingSuccess}
             currentUser={currentUser}
+            queue={queue}
+            summary={summary}
           />
         )}
 
@@ -297,6 +314,8 @@ export default function App() {
               onRefresh={fetchQueue}
               onUpdateStatus={handleUpdateStatus}
               onCallNext={handleCallNext}
+              onChangeGate={handleChangeGate}
+              onRebalanceGates={handleRebalanceGates}
               onDeleteSlot={handleDeleteSlot}
             />
           ) : (

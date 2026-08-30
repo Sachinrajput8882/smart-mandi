@@ -3,6 +3,7 @@ import QueueCard from './QueueCard';
 import ContactModal from './ContactModal';
 import AddFarmerModal from './AddFarmerModal';
 import PaymentModal from './PaymentModal';
+import CancelDetailsModal from './CancelDetailsModal';
 import { api } from '../services/api';
 import {
   ShieldCheck,
@@ -24,7 +25,11 @@ import {
   Filter,
   MessageCircle,
   Send,
-  CreditCard
+  CreditCard,
+  Truck,
+  Ban,
+  Calendar,
+  DoorOpen
 } from 'lucide-react';
 
 export default function AdminPanel({
@@ -33,6 +38,8 @@ export default function AdminPanel({
   onRefresh,
   onUpdateStatus,
   onCallNext,
+  onChangeGate,
+  onRebalanceGates,
   onDeleteSlot
 }) {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -43,14 +50,18 @@ export default function AdminPanel({
   const [callingNext, setCallingNext] = useState(false);
   const [actionMessage, setActionMessage] = useState(null);
   const [resetting, setResetting] = useState(false);
+  const [rebalancing, setRebalancing] = useState(false);
 
-  // New real manual data, payment & communication state
+  // New real manual data, payment, date filter & communication state
   const [addFarmerOpen, setAddFarmerOpen] = useState(false);
   const [contactSlot, setContactSlot] = useState(null);
   const [paymentModalSlot, setPaymentModalSlot] = useState(null);
+  const [cancelModalSlot, setCancelModalSlot] = useState(null);
+  const [cancelModalMode, setCancelModalMode] = useState('confirm'); // 'confirm' or 'view'
   const [realOnlyFilter, setRealOnlyFilter] = useState(false);
   const [gateFilter, setGateFilter] = useState('all');
   const [shiftFilter, setShiftFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all');
 
   const handleLogin = (e) => {
     e?.preventDefault();
@@ -152,7 +163,8 @@ export default function AdminPanel({
     setContactSlot(newFarmer);
   };
 
-  // Filter queue by Real Only, Gate Filter, and Shift Filter
+  // Filter queue by Real Only, Gate Filter, Shift Filter, and Date Filter
+  const todayStr = new Date().toISOString().split('T')[0];
   let displayedQueue = queue;
   if (realOnlyFilter) {
     displayedQueue = displayedQueue.filter(item => item.is_manual);
@@ -163,12 +175,53 @@ export default function AdminPanel({
   if (shiftFilter !== 'all') {
     displayedQueue = displayedQueue.filter(item => (item.shift || 'shift_1_day') === shiftFilter);
   }
+  if (dateFilter !== 'all') {
+    displayedQueue = displayedQueue.filter(item => (item.preferred_date || (item.created_at ? item.created_at.split('T')[0] : todayStr)) === dateFilter);
+  }
+
+  // Calculate unique booking dates in queue
+  const uniqueBookingDates = Array.from(new Set(queue.map(s => s.preferred_date || (s.created_at ? s.created_at.split('T')[0] : todayStr)).filter(Boolean))).sort();
+
+  // Gate Waiting Distribution & 3-Farmer Overload Tracking
+  const allWaitingSlots = queue.filter(item => item.status === 'waiting');
+  const gate1WaitingCount = allWaitingSlots.filter(s => (s.gate_assigned || 'Gate 1') === 'Gate 1').length;
+  const gate2WaitingCount = allWaitingSlots.filter(s => s.gate_assigned === 'Gate 2').length;
+  const gate3WaitingCount = allWaitingSlots.filter(s => s.gate_assigned === 'Gate 3').length;
+  const hasGateOverload = gate1WaitingCount >= 3 || gate2WaitingCount >= 3 || gate3WaitingCount >= 3;
+
+  const handleRebalance = async () => {
+    if (!onRebalanceGates) return;
+    try {
+      setRebalancing(true);
+      const res = await onRebalanceGates();
+      await onRefresh();
+      setActionMessage({
+        type: 'success',
+        text: res?.message || 'सभी गेटों का भार सफलतापूर्वक संतुलित किया गया!'
+      });
+    } catch (err) {
+      setActionMessage({
+        type: 'error',
+        text: 'Failed to rebalance gates: ' + err.message
+      });
+    } finally {
+      setRebalancing(false);
+    }
+  };
 
   const waitingFarmers = displayedQueue.filter(item => item.status === 'waiting');
   const calledFarmers = displayedQueue.filter(item => item.status === 'called');
   const processingFarmers = displayedQueue.filter(item => item.status === 'processing');
   const paymentProcessingFarmers = displayedQueue.filter(item => item.status === 'payment_processing');
   const doneFarmers = displayedQueue.filter(item => item.status === 'done');
+  const cancelledFarmers = displayedQueue.filter(item => item.status === 'cancelled');
+
+  // Daily 3000 Qtl Quota & Vehicle Intake Metrics
+  const activeToday = queue.filter(s => s.status !== 'cancelled' && (s.preferred_date === todayStr || (s.created_at && s.created_at.startsWith(todayStr))));
+  const bookedQuintals = summary?.quintals_booked_today ?? activeToday.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+  const remainingQuintals = summary?.quintals_remaining_today ?? Math.max(0, 3000 - bookedQuintals);
+  const percentFilled = Math.min(100, Math.round((bookedQuintals / 3000) * 100));
+  const vehiclesCount = summary?.vehicles_arrived_today ?? activeToday.filter(s => s.vehicle_no && s.vehicle_no.trim().length > 0).length;
 
   // If not authenticated, render secure officer login gate
   if (!isAuthenticated) {
@@ -342,6 +395,79 @@ export default function AdminPanel({
           </div>
         </div>
 
+        {/* 🌾 Officer Live Quota & Vehicle Intake Monitor (3000 Qtl Cap) */}
+        <div className="mt-5 p-4 rounded-2xl bg-slate-950/80 border border-emerald-500/40 shadow-inner">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <Scale className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-black text-white uppercase tracking-wide">
+                    दैनिक मंडी आवक कोटा एवं वाहन नियंत्रण
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-500/50">
+                    Cap: 3,000 क्विंटल / दिन
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Officer Procurement Control • 3000 Quintal Strict Maximum Intake Limit
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <div className="px-3 py-1 rounded-xl bg-slate-900 border border-slate-700">
+                <span className="text-slate-400">दैनिक सीमा: </span>
+                <strong className="text-white font-mono">3,000 Qtl</strong>
+              </div>
+              <div className="px-3 py-1 rounded-xl bg-slate-900 border border-emerald-500/40 text-emerald-300">
+                <span className="text-slate-400">आज भरा: </span>
+                <strong className="font-mono">{bookedQuintals} Qtl</strong>
+              </div>
+              <div className={`px-3 py-1 rounded-xl border font-bold font-mono ${
+                remainingQuintals <= 0
+                  ? 'bg-rose-950/80 border-rose-500 text-rose-300'
+                  : remainingQuintals < 500
+                  ? 'bg-amber-950/70 border-amber-500 text-amber-300'
+                  : 'bg-slate-900 border-emerald-500/50 text-emerald-400'
+              }`}>
+                <span className="text-slate-400 font-sans font-normal">शेष कोटा: </span>
+                <span>{remainingQuintals} Qtl</span>
+              </div>
+              <div className="px-3 py-1 rounded-xl bg-indigo-950/70 border border-indigo-500/50 text-indigo-300 flex items-center space-x-1.5">
+                <Truck className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="text-slate-400">आए हुए वाहन: </span>
+                <strong className="text-white font-mono">{vehiclesCount} वाहन</strong>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <div className="flex justify-between items-center text-xs mb-1">
+              <span className="text-slate-300 font-medium text-[11px]">
+                कोटा उपयोग: <strong>{percentFilled}%</strong> ({bookedQuintals} / 3000 Qtl)
+              </span>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {remainingQuintals > 0 ? `उपलब्ध: ${remainingQuintals} Qtl` : '🚫 दैनिक कोटा फुल'}
+              </span>
+            </div>
+            <div className="w-full bg-slate-900 rounded-full h-2.5 p-0.5 border border-slate-700 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  percentFilled >= 100
+                    ? 'bg-rose-500 shadow-md shadow-rose-500/50'
+                    : percentFilled >= 75
+                    ? 'bg-amber-500 shadow-md shadow-amber-500/50'
+                    : 'bg-emerald-500'
+                }`}
+                style={{ width: `${percentFilled}%` }}
+              ></div>
+            </div>
+          </div>
+        </div>
+
         {/* Action Message Banner */}
         {actionMessage && (
           <div
@@ -475,9 +601,111 @@ export default function AdminPanel({
               {realOnlyFilter && ' (Real Only)'}
             </span>
           </h3>
-          <div className="text-xs text-slate-500 flex items-center space-x-2">
-            <span>💡 Click <strong>WhatsApp/SMS</strong> or <strong>Call</strong> on any card to reach farmer or dispatch to Admin</span>
+        </div>
+
+        {/* Dynamic Gate Load & 3-Farmer Limit Balancing Bar */}
+        <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
+            <span className="font-bold text-slate-700 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+              <DoorOpen className="w-4 h-4 text-slate-500" />
+              <span>Gate Waiting Load:</span>
+            </span>
+
+            {/* Gate 1 Count & Status */}
+            <div className={`px-2.5 py-1 rounded-xl font-bold flex items-center space-x-1.5 border ${
+              gate1WaitingCount >= 3
+                ? 'bg-rose-50 text-rose-800 border-rose-300 ring-2 ring-rose-400/30'
+                : 'bg-blue-50 text-blue-800 border-blue-200'
+            }`}>
+              <span>Gate 1:</span>
+              <span className="font-mono">{gate1WaitingCount} waiting</span>
+              {gate1WaitingCount >= 3 && (
+                <span className="text-[9px] bg-rose-600 text-white px-1.5 py-0.2 rounded font-bold">⚠️ Full (3+)</span>
+              )}
+            </div>
+
+            {/* Gate 2 Count & Status */}
+            <div className={`px-2.5 py-1 rounded-xl font-bold flex items-center space-x-1.5 border ${
+              gate2WaitingCount >= 3
+                ? 'bg-rose-50 text-rose-800 border-rose-300 ring-2 ring-rose-400/30'
+                : 'bg-amber-50 text-amber-900 border-amber-200'
+            }`}>
+              <span>Gate 2:</span>
+              <span className="font-mono">{gate2WaitingCount} waiting</span>
+              {gate2WaitingCount >= 3 && (
+                <span className="text-[9px] bg-rose-600 text-white px-1.5 py-0.2 rounded font-bold">⚠️ Full (3+)</span>
+              )}
+            </div>
+
+            {/* Gate 3 Count & Status */}
+            <div className={`px-2.5 py-1 rounded-xl font-bold flex items-center space-x-1.5 border ${
+              gate3WaitingCount >= 3
+                ? 'bg-rose-50 text-rose-800 border-rose-300 ring-2 ring-rose-400/30'
+                : 'bg-purple-50 text-purple-900 border-purple-200'
+            }`}>
+              <span>Gate 3:</span>
+              <span className="font-mono">{gate3WaitingCount} waiting</span>
+              {gate3WaitingCount >= 3 && (
+                <span className="text-[9px] bg-rose-600 text-white px-1.5 py-0.2 rounded font-bold">⚠️ Full (3+)</span>
+              )}
+            </div>
           </div>
+
+          {/* Dynamic Rebalance Button */}
+          <div className="flex items-center space-x-2">
+            {hasGateOverload && (
+              <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200 animate-pulse">
+                ⚠️ गेट भीड़ अधिक है (Gate Overloaded)
+              </span>
+            )}
+            <button
+              onClick={handleRebalance}
+              disabled={rebalancing}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+              title="Auto-rebalance waiting farmers across gates (Max 3 per gate)"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${rebalancing ? 'animate-spin' : ''}`} />
+              <span>{rebalancing ? 'संतुलन हो रहा है...' : '⚖️ Auto-Rebalance Gates (गेट संतुलित करें)'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Date Filter Bar for Admin */}
+        <div className="flex flex-wrap items-center gap-2 bg-slate-100 p-2 rounded-2xl border border-slate-200 text-xs">
+          <span className="font-bold text-slate-600 px-2 uppercase tracking-wider text-[11px] flex items-center gap-1">
+            <Calendar className="w-3.5 h-3.5 text-blue-600" />
+            <span>Filter by Date / तारीख:</span>
+          </span>
+          <button
+            onClick={() => setDateFilter('all')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition ${
+              dateFilter === 'all'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
+            }`}
+          >
+            All Dates ({queue.length})
+          </button>
+          {uniqueBookingDates.map(date => {
+            const count = queue.filter(s => (s.preferred_date || (s.created_at ? s.created_at.split('T')[0] : todayStr)) === date).length;
+            const isToday = date === todayStr;
+            return (
+              <button
+                key={date}
+                onClick={() => setDateFilter(date)}
+                className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center space-x-1.5 ${
+                  dateFilter === date
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-white text-slate-700 hover:bg-blue-50 border border-slate-200'
+                }`}
+              >
+                <span>{isToday ? `Today (${date})` : date}</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-black/10 rounded-full font-mono">
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* 3 Gates Filter Bar for Admin */}
@@ -579,8 +807,8 @@ export default function AdminPanel({
           </button>
         </div>
 
-        {/* 5 Pipeline Columns: Waiting, Called, Processing, Payment Processing, Done */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        {/* 6 Pipeline Columns: Waiting, Called, Processing, Payment Processing, Done, Cancelled */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           {/* 1. Waiting Column */}
           <div className="space-y-3">
             <div className="bg-amber-100/70 border border-amber-300/80 px-3 py-2 rounded-xl flex items-center justify-between">
@@ -602,6 +830,11 @@ export default function AdminPanel({
                   onUpdateStatus={onUpdateStatus}
                   onOpenContact={(s) => setContactSlot(s)}
                   onOpenPayment={(s) => setPaymentModalSlot(s)}
+                  onOpenCancel={(s, m) => {
+                    setCancelModalSlot(s);
+                    setCancelModalMode(m || 'confirm');
+                  }}
+                  onChangeGate={onChangeGate}
                   onDeleteSlot={onDeleteSlot}
                 />
               ))
@@ -629,6 +862,11 @@ export default function AdminPanel({
                   onUpdateStatus={onUpdateStatus}
                   onOpenContact={(s) => setContactSlot(s)}
                   onOpenPayment={(s) => setPaymentModalSlot(s)}
+                  onOpenCancel={(s, m) => {
+                    setCancelModalSlot(s);
+                    setCancelModalMode(m || 'confirm');
+                  }}
+                  onChangeGate={onChangeGate}
                   onDeleteSlot={onDeleteSlot}
                 />
               ))
@@ -656,6 +894,11 @@ export default function AdminPanel({
                   onUpdateStatus={onUpdateStatus}
                   onOpenContact={(s) => setContactSlot(s)}
                   onOpenPayment={(s) => setPaymentModalSlot(s)}
+                  onOpenCancel={(s, m) => {
+                    setCancelModalSlot(s);
+                    setCancelModalMode(m || 'confirm');
+                  }}
+                  onChangeGate={onChangeGate}
                   onDeleteSlot={onDeleteSlot}
                 />
               ))
@@ -684,6 +927,11 @@ export default function AdminPanel({
                   onUpdateStatus={onUpdateStatus}
                   onOpenContact={(s) => setContactSlot(s)}
                   onOpenPayment={(s) => setPaymentModalSlot(s)}
+                  onOpenCancel={(s, m) => {
+                    setCancelModalSlot(s);
+                    setCancelModalMode(m || 'confirm');
+                  }}
+                  onChangeGate={onChangeGate}
                   onDeleteSlot={onDeleteSlot}
                 />
               ))
@@ -711,6 +959,45 @@ export default function AdminPanel({
                   onUpdateStatus={onUpdateStatus}
                   onOpenContact={(s) => setContactSlot(s)}
                   onOpenPayment={(s) => setPaymentModalSlot(s)}
+                  onOpenCancel={(s, m) => {
+                    setCancelModalSlot(s);
+                    setCancelModalMode(m || 'confirm');
+                  }}
+                  onChangeGate={onChangeGate}
+                  onDeleteSlot={onDeleteSlot}
+                />
+              ))
+            )}
+          </div>
+
+          {/* 6. Cancelled Column */}
+          <div className="space-y-3">
+            <div className="bg-rose-100/80 border border-rose-300 px-3 py-2 rounded-xl flex items-center justify-between shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-rose-900 flex items-center gap-1.5">
+                <span>6. Cancelled ({cancelledFarmers.length})</span>
+              </span>
+              <span className="text-[10px] bg-rose-200 text-rose-800 px-1.5 py-0.5 rounded font-bold" title="यह सिर्फ Admin और संबंधित किसान को दिखता है">
+                🔒 Private
+              </span>
+            </div>
+            {cancelledFarmers.length === 0 ? (
+              <p className="text-xs text-slate-400 p-4 text-center bg-white rounded-xl border border-slate-200">
+                No cancelled tokens
+              </p>
+            ) : (
+              cancelledFarmers.map(slot => (
+                <QueueCard
+                  key={slot.token_id}
+                  slot={slot}
+                  isAdmin={true}
+                  onUpdateStatus={onUpdateStatus}
+                  onOpenContact={(s) => setContactSlot(s)}
+                  onOpenPayment={(s) => setPaymentModalSlot(s)}
+                  onOpenCancel={(s, m) => {
+                    setCancelModalSlot(s);
+                    setCancelModalMode(m || 'view');
+                  }}
+                  onChangeGate={onChangeGate}
                   onDeleteSlot={onDeleteSlot}
                 />
               ))
@@ -746,6 +1033,28 @@ export default function AdminPanel({
           setActionMessage({
             type: 'success',
             text: `Token ${tid} payment release confirmed & marked Done!`
+          });
+        }}
+      />
+
+      {/* Farmer Token Cancellation & Detail View Modal */}
+      <CancelDetailsModal
+        slot={cancelModalSlot}
+        isOpen={Boolean(cancelModalSlot)}
+        mode={cancelModalMode}
+        onClose={() => setCancelModalSlot(null)}
+        onConfirmCancel={async (tokenId, reason) => {
+          await onUpdateStatus(tokenId, 'cancelled', reason);
+          setActionMessage({
+            type: 'success',
+            text: `टोकन ${tokenId} (${cancelModalSlot?.farmer_name}) रद्द कर दिया गया है। कारण दर्ज कर दिया गया है।`
+          });
+        }}
+        onRestore={async (tokenId) => {
+          await onUpdateStatus(tokenId, 'waiting');
+          setActionMessage({
+            type: 'success',
+            text: `टोकन ${tokenId} को पुनः कतार (Waiting) में बहाल कर दिया गया है।`
           });
         }}
       />

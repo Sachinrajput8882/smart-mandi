@@ -286,7 +286,7 @@ const db = {
     return newEntry;
   },
 
-  async updateStatus(tokenId, newStatus) {
+  async updateStatus(tokenId, newStatus, cancellationReason = '') {
     const validStatuses = ['waiting', 'called', 'processing', 'payment_processing', 'done', 'cancelled'];
     if (!validStatuses.includes(newStatus)) {
       throw new Error(`Invalid status: ${newStatus}`);
@@ -296,9 +296,13 @@ const db = {
     const now = new Date().toISOString();
 
     if (useMongo) {
+      const updatePayload = { status: newStatus, updated_at: now };
+      if (cancellationReason) {
+        updatePayload.cancellation_reason = cancellationReason.trim();
+      }
       const updated = await QueueSlot.findOneAndUpdate(
         { token_id: cleanToken },
-        { status: newStatus },
+        updatePayload,
         { new: true }
       ).lean();
       if (!updated) return null;
@@ -325,6 +329,53 @@ const db = {
     const item = data.find(d => d.token_id && d.token_id.toUpperCase() === cleanToken);
     if (!item) return null;
     item.status = newStatus;
+    if (cancellationReason) {
+      item.cancellation_reason = cancellationReason.trim();
+    }
+    item.updated_at = now;
+    writeLocalData(data);
+    return item;
+  },
+
+  async updateGate(tokenId, newGate) {
+    const validGates = ['Gate 1', 'Gate 2', 'Gate 3'];
+    if (!validGates.includes(newGate)) {
+      throw new Error(`Invalid gate: ${newGate}`);
+    }
+
+    const cleanToken = tokenId.trim().toUpperCase();
+    const now = new Date().toISOString();
+
+    if (useMongo) {
+      const updated = await QueueSlot.findOneAndUpdate(
+        { token_id: cleanToken },
+        { gate_assigned: newGate, updated_at: now },
+        { new: true }
+      ).lean();
+      if (!updated) return null;
+      return {
+        ...updated,
+        id: updated._id ? updated._id.toString() : updated.id,
+        created_at: updated.created_at ? new Date(updated.created_at).toISOString() : now,
+        updated_at: updated.updated_at ? new Date(updated.updated_at).toISOString() : now
+      };
+    }
+
+    if (usePostgres) {
+      const res = await pgPool.query(
+        `UPDATE queue_slots 
+         SET gate_assigned = $1, updated_at = $2 
+         WHERE UPPER(token_id) = $3 
+         RETURNING *`,
+        [newGate, now, cleanToken]
+      );
+      return res.rows[0] || null;
+    }
+
+    const data = readLocalData();
+    const item = data.find(d => d.token_id && d.token_id.toUpperCase() === cleanToken);
+    if (!item) return null;
+    item.gate_assigned = newGate;
     item.updated_at = now;
     writeLocalData(data);
     return item;

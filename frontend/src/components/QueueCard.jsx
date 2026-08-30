@@ -13,7 +13,9 @@ import {
   Truck,
   Trash2,
   CreditCard,
-  ShieldCheck
+  ShieldCheck,
+  Calendar,
+  DoorOpen
 } from 'lucide-react';
 import { calculateMspAmount, formatInr } from '../utils/paymentUtils';
 
@@ -63,10 +65,10 @@ export const STATUS_CONFIG = {
   cancelled: {
     label: 'Cancelled',
     labelHindi: 'रद्द',
-    badgeClass: 'bg-slate-100 text-slate-700 border-slate-300',
-    cardBorder: 'border-l-4 border-l-slate-400 border-slate-200 opacity-60',
-    bgLight: 'bg-slate-50',
-    iconColor: 'text-slate-500',
+    badgeClass: 'bg-rose-100 text-rose-800 border-rose-300',
+    cardBorder: 'border-l-4 border-l-rose-500 border-rose-200 shadow-sm',
+    bgLight: 'bg-rose-50/20',
+    iconColor: 'text-rose-600',
   }
 };
 
@@ -78,15 +80,17 @@ export default function QueueCard({
   onAnnounce,
   onOpenContact,
   onOpenPayment,
+  onOpenCancel,
+  onChangeGate,
   onDeleteSlot
 }) {
   const status = (slot.status || 'waiting').toLowerCase();
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.waiting;
   const hasPhone = Boolean(slot.phone && slot.phone.trim());
 
-  const handleStatusChange = (newStatus) => {
+  const handleStatusChange = (newStatus, reason = '') => {
     if (onUpdateStatus) {
-      onUpdateStatus(slot.token_id, newStatus);
+      onUpdateStatus(slot.token_id, newStatus, reason);
     }
   };
 
@@ -145,16 +149,30 @@ export default function QueueCard({
               {slot.shift === 'shift_2_night' ? '🌙 Night' : '🌅 Day'}
             </span>
 
-            {slot.gate_assigned && (
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                slot.gate_assigned === 'Gate 1'
-                  ? 'bg-blue-50 text-blue-800 border-blue-200'
-                  : slot.gate_assigned === 'Gate 2'
-                  ? 'bg-amber-50 text-amber-900 border-amber-200'
-                  : 'bg-purple-50 text-purple-900 border-purple-200'
-              }`}>
-                🚪 {slot.gate_assigned}
-              </span>
+            {isAdmin && onChangeGate ? (
+              <div className="flex items-center space-x-1" title="Click to reassign Gate for this farmer">
+                <select
+                  value={slot.gate_assigned || 'Gate 1'}
+                  onChange={(e) => onChangeGate(slot.token_id, e.target.value)}
+                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border border-slate-300 bg-white text-slate-800 cursor-pointer hover:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                >
+                  <option value="Gate 1">🚪 Gate 1 (Heavy)</option>
+                  <option value="Gate 2">🚪 Gate 2 (Commercial)</option>
+                  <option value="Gate 3">🚪 Gate 3 (Light)</option>
+                </select>
+              </div>
+            ) : (
+              slot.gate_assigned && (
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                  slot.gate_assigned === 'Gate 1'
+                    ? 'bg-blue-50 text-blue-800 border-blue-200'
+                    : slot.gate_assigned === 'Gate 2'
+                    ? 'bg-amber-50 text-amber-900 border-amber-200'
+                    : 'bg-purple-50 text-purple-900 border-purple-200'
+                }`}>
+                  🚪 {slot.gate_assigned}
+                </span>
+              )
             )}
           </div>
         </div>
@@ -192,6 +210,22 @@ export default function QueueCard({
             <Scale className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
             <span>{slot.quantity} Qtl</span>
           </div>
+        </div>
+
+        {/* Farmer Scheduled Booking Date */}
+        <div className="flex items-center justify-between text-slate-600 text-xs pt-1.5 border-t border-slate-100">
+          <div className="flex items-center space-x-1.5">
+            <Calendar className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+            <span className="text-slate-500 font-medium">बुकिंग दिनांक:</span>
+            <strong className="text-slate-900 font-mono font-bold bg-blue-50 text-blue-900 border border-blue-200/70 px-1.5 py-0.2 rounded text-[11px]">
+              {slot.preferred_date || (slot.created_at ? slot.created_at.split('T')[0] : 'Today')}
+            </strong>
+          </div>
+          {slot.shift && (
+            <span className="text-[10px] text-slate-400 font-medium">
+              {slot.shift === 'shift_2_night' ? '1:00 PM – 8:00 PM' : '6:00 AM – 11:00 AM'}
+            </span>
+          )}
         </div>
       </div>
 
@@ -242,6 +276,28 @@ export default function QueueCard({
               </span>
             </div>
           </button>
+        ) : status === 'cancelled' ? (
+          <div className="w-full bg-rose-50 border border-rose-200/90 p-2.5 rounded-xl space-y-1 text-xs">
+            <div className="flex items-center justify-between text-rose-900 font-bold">
+              <span className="flex items-center gap-1.5">
+                <span className="text-rose-600">❌</span>
+                रद्द टोकन (Cancelled Slot)
+              </span>
+              <span className="text-[10px] bg-rose-200/90 text-rose-800 px-1.5 py-0.2 rounded font-mono font-bold">
+                🔒 Private
+              </span>
+            </div>
+            {slot.cancellation_reason ? (
+              <p className="text-slate-700 text-[11px] bg-white p-1.5 rounded border border-rose-100 leading-snug">
+                <span className="font-semibold text-rose-700">कारण: </span>
+                {slot.cancellation_reason}
+              </p>
+            ) : (
+              <p className="text-slate-500 text-[11px] italic">
+                कारण: प्रशासनिक कारणों से रद्द
+              </p>
+            )}
+          </div>
         ) : (
           <div className="w-full flex items-center justify-between text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-lg">
             <span className="flex items-center gap-1.5 text-xs font-semibold">
@@ -389,12 +445,40 @@ export default function QueueCard({
 
           {status !== 'done' && status !== 'cancelled' && (
             <button
-              onClick={() => handleStatusChange('cancelled')}
-              title="Cancel / Skip token"
-              className="px-2 py-1.5 bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-700 rounded-lg text-xs transition"
+              onClick={() => {
+                if (onOpenCancel) {
+                  onOpenCancel(slot, 'confirm');
+                } else {
+                  const ok = window.confirm(`⚠️ क्या आप टोकन ${slot.token_id} (${slot.farmer_name}) को रद्द करना चाहते हैं?\n\nयह टोकन सार्वजनिक डिस्प्ले से हट जाएगा और केवल किसान और एडमिन को दिखेगा।`);
+                  if (ok) handleStatusChange('cancelled');
+                }
+              }}
+              title="Cancel farmer token (Admin action)"
+              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
             >
-              Skip
+              <span>❌ रद्द करें (Cancel)</span>
             </button>
+          )}
+
+          {status === 'cancelled' && (
+            <div className="flex items-center justify-between gap-2 w-full">
+              {onOpenCancel && (
+                <button
+                  onClick={() => onOpenCancel(slot, 'view')}
+                  className="flex-1 py-1.5 px-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-xs"
+                  title="View full farmer & cancellation details"
+                >
+                  <span>📋 रद्द विवरण देखें</span>
+                </button>
+              )}
+              <button
+                onClick={() => handleStatusChange('waiting')}
+                title="Restore token to waiting queue"
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
+              >
+                <span>पुनः सक्रिय (Restore)</span>
+              </button>
+            </div>
           )}
         </div>
       )}

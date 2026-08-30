@@ -202,6 +202,50 @@ export default function TokenTracker({ initialToken, onNavigateToBooking }) {
             </div>
           )}
 
+          {status === 'cancelled' && (
+            <div className="bg-rose-600 text-white p-5 flex items-start space-x-3.5 shadow-lg">
+              <AlertTriangle className="w-7 h-7 flex-shrink-0 text-amber-300 animate-pulse mt-0.5" />
+              <div className="flex-1">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <strong className="text-base uppercase tracking-wider font-extrabold block">
+                    ❌ आपका टोकन मंडी प्रशासन द्वारा रद्द कर दिया गया है
+                  </strong>
+                  <span className="text-[11px] bg-white/20 px-2 py-0.5 rounded-full font-mono font-bold">
+                    🔒 Private Notice
+                  </span>
+                </div>
+                <p className="text-sm text-rose-100 mt-1 leading-relaxed">
+                  यह टोकन मंडी प्रशासन द्वारा निरस्त (Cancel) कर दिया गया है। यह सूचना केवल आपको और मंडी अधिकारी को दिखाई दे रही है। सार्वजनिक लाइव सूची में यह किसी को नहीं दिखेगा।
+                </p>
+                {activeTokenData.cancellation_reason && (
+                  <div className="mt-2.5 bg-black/20 p-2.5 rounded-xl border border-white/20 text-xs">
+                    <span className="font-bold text-amber-200">रद्द करने का कारण: </span>
+                    <span>{activeTokenData.cancellation_reason}</span>
+                  </div>
+                )}
+                <div className="mt-3 flex items-center gap-3">
+                  {onNavigateToBooking && (
+                    <button
+                      onClick={() => onNavigateToBooking()}
+                      className="bg-white text-rose-700 hover:bg-rose-50 text-xs font-bold py-1.5 px-3 rounded-lg shadow-sm transition"
+                    >
+                      नया टोकन बुक करें
+                    </button>
+                  )}
+                  <a
+                    href={`https://wa.me/91${ADMIN_PHONE}?text=${encodeURIComponent(`नमस्ते मंडी प्रशासन, मेरा टोकन ${activeTokenData.token_id} (${activeTokenData.farmer_name}) रद्द हो गया है। कृपया सहायता करें।`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-rose-800/80 hover:bg-rose-900 text-white text-xs font-bold py-1.5 px-3 rounded-lg border border-rose-400/40 transition flex items-center gap-1.5"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>मंडी अधिकारी से संपर्क करें</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Token Header */}
           <div className="p-6 sm:p-8 space-y-6">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50 p-6 rounded-2xl border border-slate-200">
@@ -248,10 +292,10 @@ export default function TokenTracker({ initialToken, onNavigateToBooking }) {
                   Estimated Wait
                 </span>
                 <span className="text-3xl font-black font-mono text-emerald-700 mt-1 block">
-                  {activeTokenData.estimated_wait_minutes}m
+                  {status === 'cancelled' ? '—' : status === 'done' ? '0m' : `${activeTokenData.estimated_wait_minutes || 0}m`}
                 </span>
                 <span className="text-[11px] text-emerald-600 mt-1 block">
-                  {activeTokenData.position ? `${activeTokenData.position} × 10 min est.` : 'Immediate'}
+                  {status === 'cancelled' ? 'Token Cancelled' : activeTokenData.position ? `${activeTokenData.position} × 10 min est.` : 'Immediate'}
                 </span>
               </div>
             </div>

@@ -20,7 +20,10 @@ import {
   Clock,
   ShieldCheck,
   Headphones,
-  MessageCircle
+  MessageCircle,
+  Truck,
+  Scale,
+  Calendar
 } from 'lucide-react';
 import { getCurrentShiftInfo, MANDI_SHIFTS } from '../utils/shiftUtils';
 
@@ -38,6 +41,7 @@ export default function LiveQueue({
   const [filter, setFilter] = useState('all');
   const [gateFilter, setGateFilter] = useState('all');
   const [shiftFilter, setShiftFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all');
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [countdown, setCountdown] = useState(4);
 
@@ -45,6 +49,35 @@ export default function LiveQueue({
   const [contactSlot, setContactSlot] = useState(null);
   const [paymentModalSlot, setPaymentModalSlot] = useState(null);
   const [addFarmerOpen, setAddFarmerOpen] = useState(false);
+
+  // Date-wise Quota Breakdown (Today + next 7 days)
+  const todayStr = new Date().toISOString().split('T')[0];
+  const dateBreakdown = (summary?.date_wise_breakdown && summary.date_wise_breakdown.length > 0)
+    ? summary.date_wise_breakdown
+    : (() => {
+        const list = [];
+        const today = new Date();
+        for (let i = 0; i < 8; i++) {
+          const d = new Date(today);
+          d.setDate(today.getDate() + i);
+          const dStr = d.toISOString().split('T')[0];
+          const label = i === 0 ? 'Today (आज)' : i === 1 ? 'Tomorrow (कल)' : d.toLocaleDateString('hi-IN', { weekday: 'short', month: 'short', day: 'numeric' });
+          const daySlots = (queue || []).filter(s => s.status !== 'cancelled' && (s.preferred_date === dStr || (!s.preferred_date && i === 0)));
+          const booked = daySlots.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+          const remaining = Math.max(0, 3000 - booked);
+          list.push({
+            date: dStr,
+            label,
+            booked_quintals: booked,
+            remaining_quintals: remaining,
+            capacity: 3000,
+            farmer_count: daySlots.length,
+            percent: Math.min(100, Math.round((booked / 3000) * 100)),
+            status: remaining <= 0 ? 'full' : remaining < 500 ? 'fast_filling' : 'available'
+          });
+        }
+        return list;
+      })();
 
   // Auto-refresh timer every 4 seconds
   useEffect(() => {
@@ -64,6 +97,17 @@ export default function LiveQueue({
   }, [autoRefreshEnabled, onRefresh]);
 
   const filteredQueue = queue.filter(item => {
+    // PRIVACY RULE: Cancelled tokens are strictly hidden from public view!
+    if (item.status === 'cancelled') return false;
+
+    // Date Filter
+    if (dateFilter !== 'all') {
+      const itemDate = item.preferred_date || (item.created_at ? item.created_at.split('T')[0] : todayStr);
+      if (itemDate !== dateFilter) {
+        return false;
+      }
+    }
+
     // Gate Filter
     if (gateFilter !== 'all' && (item.gate_assigned || 'Gate 1') !== gateFilter) {
       return false;
@@ -91,6 +135,13 @@ export default function LiveQueue({
   const shift1Count = queue.filter(item => (item.shift || 'shift_1_day') === 'shift_1_day').length;
   const shift2Count = queue.filter(item => item.shift === 'shift_2_night').length;
   const currentShiftInfo = getCurrentShiftInfo();
+
+  // Daily 3000 Quintals Mandi Capacity & Vehicle Intake Metrics
+  const activeToday = queue.filter(s => s.status !== 'cancelled' && (s.preferred_date === todayStr || (s.created_at && s.created_at.startsWith(todayStr))));
+  const bookedQuintals = summary?.quintals_booked_today ?? activeToday.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+  const remainingQuintals = summary?.quintals_remaining_today ?? Math.max(0, 3000 - bookedQuintals);
+  const percentFilled = Math.min(100, Math.round((bookedQuintals / 3000) * 100));
+  const vehiclesCount = summary?.vehicles_arrived_today ?? activeToday.filter(s => s.vehicle_no && s.vehicle_no.trim().length > 0).length;
 
   return (
     <div className="space-y-8">
@@ -192,6 +243,159 @@ export default function LiveQueue({
               <span className="text-amber-300 font-bold">Shift 1 (Day): 6am-11am</span>
               <span className="text-slate-600">|</span>
               <span className="text-indigo-300 font-bold">Shift 2 (Night): 1pm-8pm</span>
+            </div>
+          </div>
+
+          {/* 🌾 Live Mandi Daily Capacity & Vehicle Intake Widget (3000 Quintals Quota) */}
+          <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-emerald-500/30 shadow-lg">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-700/60">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <Scale className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-sm font-black tracking-wide text-white uppercase">
+                      दैनिक मंडी आवक क्षमता (Daily Mandi Capacity)
+                    </h3>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-500/40">
+                      अधिकतम 3,000 क्विंटल / दिन
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Mandi Daily Intake Cap • 3000 Quintals Max per Day
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Numbers */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <div className="px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-700 flex items-center space-x-1.5">
+                  <span className="text-slate-400">कुल कोटा:</span>
+                  <strong className="text-white font-mono">3,000 Qtl</strong>
+                </div>
+
+                <div className="px-3 py-1.5 rounded-xl bg-slate-950/80 border border-emerald-500/40 flex items-center space-x-1.5 text-emerald-300">
+                  <span className="text-slate-400">आवक/बुक:</span>
+                  <strong className="font-mono">{bookedQuintals} Qtl</strong>
+                </div>
+
+                <div className={`px-3 py-1.5 rounded-xl border flex items-center space-x-1.5 ${
+                  remainingQuintals > 500
+                    ? 'bg-slate-950/80 border-emerald-500/50 text-emerald-400'
+                    : remainingQuintals > 0
+                    ? 'bg-amber-950/60 border-amber-500/50 text-amber-300'
+                    : 'bg-rose-950/80 border-rose-500/70 text-rose-300'
+                }`}>
+                  <span className="text-slate-400">शेष कोटा:</span>
+                  <strong className="font-mono font-extrabold">{remainingQuintals} Qtl</strong>
+                </div>
+
+                {/* Total Vehicles Arrived */}
+                <div className="px-3 py-1.5 rounded-xl bg-indigo-950/70 border border-indigo-500/40 flex items-center space-x-1.5 text-indigo-300">
+                  <Truck className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="text-slate-400">कुल वाहन:</span>
+                  <strong className="font-mono text-white">{vehiclesCount} वाहन</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Progress Bar & Status Line */}
+            <div className="mt-3">
+              <div className="flex justify-between items-center text-xs mb-1">
+                <span className="text-slate-300 font-medium text-[11px] flex items-center gap-1.5">
+                  <span>कोटा भरा: <strong>{percentFilled}%</strong> ({bookedQuintals} / 3000 Qtl)</span>
+                  {remainingQuintals === 0 && (
+                    <span className="text-rose-400 font-bold bg-rose-950/80 px-2 py-0.2 rounded-md border border-rose-700/60">
+                      🚫 आज का कोटा पूरा (Mandi Full)
+                    </span>
+                  )}
+                </span>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  {remainingQuintals > 0 ? `स्थान उपलब्ध: ${remainingQuintals} क्विंटल` : 'स्लॉट फुल'}
+                </span>
+              </div>
+
+              <div className="w-full bg-slate-950 rounded-full h-3 p-0.5 border border-slate-700 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    percentFilled >= 100
+                      ? 'bg-rose-500 shadow-md shadow-rose-500/50'
+                      : percentFilled >= 75
+                      ? 'bg-amber-500 shadow-md shadow-amber-500/50'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                  }`}
+                  style={{ width: `${percentFilled}%` }}
+                ></div>
+              </div>
+            </div>
+          </div>
+
+          {/* 📅 Multi-Day Quota & Booking Status (Today + 7 Days) for All Farmers */}
+          <div className="mt-4 p-4 rounded-2xl bg-slate-950/70 border border-slate-800/90 shadow-inner">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div className="flex items-center space-x-2">
+                <Calendar className="w-4 h-4 text-emerald-400" />
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">
+                  📅 आगामी 7 दिनों का मंडी कोटा व बुकिंग स्थिति (Upcoming Mandi Booking Quota)
+                </h4>
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {dateFilter === 'all' ? 'सभी दिन प्रदर्शित' : `फ़िल्टर: ${dateFilter}`} • तारीख पर क्लिक करके फ़िल्टर करें
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+              {dateBreakdown.map(day => {
+                const isSelected = dateFilter === day.date;
+                const isFull = day.remaining_quintals <= 0;
+                return (
+                  <button
+                    key={day.date}
+                    type="button"
+                    onClick={() => setDateFilter(prev => prev === day.date ? 'all' : day.date)}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      isSelected
+                        ? 'bg-emerald-950/90 border-emerald-400 ring-2 ring-emerald-500/50 shadow-lg'
+                        : isFull
+                        ? 'bg-slate-900/60 border-slate-800 opacity-70 hover:opacity-100 hover:border-rose-900'
+                        : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 hover:bg-slate-800/80'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-white truncate">{day.label}</span>
+                      <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${
+                        isFull
+                          ? 'bg-rose-950 text-rose-300 border border-rose-800'
+                          : day.status === 'fast_filling'
+                          ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                          : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                      }`}>
+                        {isFull ? 'फुल' : `${day.remaining_quintals}Q`}
+                      </span>
+                    </div>
+
+                    <div className="mt-1 text-[10px] text-slate-400 flex justify-between font-mono">
+                      <span>{day.date.slice(5)}</span>
+                      <span className="text-emerald-300 font-bold">{day.booked_quintals} Q</span>
+                    </div>
+
+                    <div className="mt-1.5 w-full bg-slate-800 rounded-full h-1 overflow-hidden">
+                      <div
+                        className={`h-full ${
+                          isFull ? 'bg-rose-500' : day.percent >= 75 ? 'bg-amber-500' : 'bg-emerald-400'
+                        }`}
+                        style={{ width: `${day.percent}%` }}
+                      />
+                    </div>
+
+                    <div className="mt-1 text-[9px] text-slate-400 flex justify-between pt-0.5">
+                      <span>{day.farmer_count} किसान</span>
+                      <span className="font-mono">{day.percent}%</span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -421,6 +625,42 @@ export default function LiveQueue({
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span>Admin Phone: <strong className="font-mono text-slate-800">+91 91058 46785</strong></span>
         </div>
+      </div>
+
+      {/* Date Filter Bar / दिनांक फ़िल्टर (Public View) */}
+      <div className="flex flex-wrap items-center gap-2 bg-slate-100/90 p-2.5 rounded-2xl border border-slate-200 text-xs">
+        <span className="font-bold text-slate-700 px-2 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+          <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+          <span>Date Filter / दिनांक:</span>
+        </span>
+        <button
+          onClick={() => setDateFilter('all')}
+          className={`px-3 py-1.5 rounded-xl font-bold transition ${
+            dateFilter === 'all'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
+          }`}
+        >
+          सभी तारीखें (All Dates)
+        </button>
+        {dateBreakdown.map(d => (
+          <button
+            key={d.date}
+            onClick={() => setDateFilter(d.date)}
+            className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center space-x-1.5 ${
+              dateFilter === d.date
+                ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/30'
+                : 'bg-white text-slate-700 hover:bg-emerald-50 border border-slate-200'
+            }`}
+          >
+            <span>{d.label}</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+              dateFilter === d.date ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+            }`}>
+              {d.booked_quintals} Q
+            </span>
+          </button>
+        ))}
       </div>
 
       {/* 3 Gates Selector Bar */}

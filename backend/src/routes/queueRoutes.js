@@ -18,6 +18,12 @@ router.put('/next', queueController.callNext);
 // PUT /update-status -> update status
 router.put('/update-status', queueController.updateStatus);
 
+// PUT /change-gate -> update gate
+router.put('/change-gate', queueController.changeGate);
+
+// POST /rebalance-gates -> rebalance waiting queues
+router.post('/rebalance-gates', queueController.rebalanceGates);
+
 // Additional helpful endpoints:
 router.get('/queue/:tokenId', queueController.getByToken);
 router.delete('/queue/:tokenId', queueController.deleteSlot);

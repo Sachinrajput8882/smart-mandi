@@ -4,10 +4,17 @@ const { db } = require('../config/db');
 let sseClients = [];
 
 function broadcastQueueUpdate(event, data) {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   sseClients.forEach(client => {
     try {
-      client.write(payload);
+      let payloadData = data;
+      if (data.queue && client.role !== 'admin') {
+        payloadData = {
+          ...data,
+          queue: data.queue.filter(s => s.status !== 'cancelled')
+        };
+      }
+      const payload = `event: ${event}\ndata: ${JSON.stringify(payloadData)}\n\n`;
+      client.res.write(payload);
     } catch (e) {
       // client disconnected
     }
@@ -48,16 +55,129 @@ function enrichQueueWithPositions(slots) {
   });
 }
 
+const DAILY_CAPACITY_QUINTALS = 3000;
+const ALL_GATES = ['Gate 1', 'Gate 2', 'Gate 3'];
+
+function computeDateWiseBreakdown(enriched) {
+  const breakdown = [];
+  const now = new Date();
+
+  for (let i = 0; i < 8; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+
+    const activeForDate = enriched.filter(
+      s => s.status !== 'cancelled' &&
+      (s.preferred_date === dateStr || (i === 0 && s.created_at && s.created_at.startsWith(dateStr)))
+    );
+
+    const bookedQtl = activeForDate.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+    const remainingQtl = Math.max(0, DAILY_CAPACITY_QUINTALS - bookedQtl);
+    const percent = Math.min(100, Math.round((bookedQtl / DAILY_CAPACITY_QUINTALS) * 100));
+    const vehicles = activeForDate.filter(s => s.vehicle_no && s.vehicle_no.trim().length > 0).length;
+
+    let status = 'available'; // 'available' | 'fast_filling' | 'full'
+    if (remainingQtl === 0) status = 'full';
+    else if (percent >= 70) status = 'fast_filling';
+
+    breakdown.push({
+      date: dateStr,
+      is_today: i === 0,
+      is_tomorrow: i === 1,
+      booked_quintals: bookedQtl,
+      remaining_quintals: remainingQtl,
+      capacity_percentage: percent,
+      vehicles_count: vehicles,
+      farmers_count: activeForDate.length,
+      status
+    });
+  }
+  return breakdown;
+}
+
+// 3 Farmers Waiting per Gate Rule: Automatic Dynamic Load Balancing
+function determineBalancedGate(slots, requestedGate = 'Gate 1') {
+  const cleanRequested = ALL_GATES.includes(requestedGate) ? requestedGate : 'Gate 1';
+
+  // Count active waiting farmers at each gate
+  const waitingSlots = slots.filter(s => s.status === 'waiting');
+
+  const gateCounts = {
+    'Gate 1': waitingSlots.filter(s => (s.gate_assigned || 'Gate 1') === 'Gate 1').length,
+    'Gate 2': waitingSlots.filter(s => s.gate_assigned === 'Gate 2').length,
+    'Gate 3': waitingSlots.filter(s => s.gate_assigned === 'Gate 3').length,
+  };
+
+  // If requested gate has less than 3 waiting farmers, assign requested gate directly
+  if (gateCounts[cleanRequested] < 3) {
+    return {
+      assignedGate: cleanRequested,
+      wasRebalanced: false,
+      originalGate: cleanRequested,
+      gateCounts
+    };
+  }
+
+  // If requested gate already has 3 or more waiting farmers, find an alternate gate with < 3 waiting
+  const eligibleGates = ALL_GATES.filter(g => gateCounts[g] < 3).sort((a, b) => gateCounts[a] - gateCounts[b]);
+
+  if (eligibleGates.length > 0) {
+    const chosenGate = eligibleGates[0];
+    return {
+      assignedGate: chosenGate,
+      wasRebalanced: true,
+      originalGate: cleanRequested,
+      reason: `${cleanRequested} पर 3 किसान पहले से प्रतीक्षारत हैं। भार संतुलन के लिए ${chosenGate} स्वतः आवंटित किया गया। (${cleanRequested} has 3 waiting farmers; auto-routed to ${chosenGate})`,
+      gateCounts
+    };
+  }
+
+  // If ALL gates have >= 3 waiting farmers, assign gate with lowest queue
+  const leastLoadedGate = [...ALL_GATES].sort((a, b) => gateCounts[a] - gateCounts[b])[0];
+  return {
+    assignedGate: leastLoadedGate,
+    wasRebalanced: leastLoadedGate !== cleanRequested,
+    originalGate: cleanRequested,
+    reason: `सभी गेटों पर प्रतीक्षा अधिक है। न्यूनतम कतार वाला ${leastLoadedGate} आवंटित किया गया।`,
+    gateCounts
+  };
+}
+
 function computeSummary(enriched) {
+  const today = new Date().toISOString().split('T')[0];
+  const activeToday = enriched.filter(s => s.status !== 'cancelled' && (s.preferred_date === today || (s.created_at && s.created_at.startsWith(today))));
+  const totalQuintalsToday = activeToday.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+  const totalVehiclesCount = activeToday.filter(s => s.vehicle_no && s.vehicle_no.trim()).length;
+
+  const waitingSlots = enriched.filter(s => s.status === 'waiting');
+  const gateWaitingCounts = {
+    'Gate 1': waitingSlots.filter(s => (s.gate_assigned || 'Gate 1') === 'Gate 1').length,
+    'Gate 2': waitingSlots.filter(s => s.gate_assigned === 'Gate 2').length,
+    'Gate 3': waitingSlots.filter(s => s.gate_assigned === 'Gate 3').length,
+  };
+
   return {
     total: enriched.length,
-    waiting: enriched.filter(s => s.status === 'waiting').length,
+    waiting: waitingSlots.length,
     called: enriched.filter(s => s.status === 'called').length,
     processing: enriched.filter(s => s.status === 'processing').length,
     payment_processing: enriched.filter(s => s.status === 'payment_processing').length,
     done: enriched.filter(s => s.status === 'done').length,
+    cancelled: enriched.filter(s => s.status === 'cancelled').length,
     shift_1_day: enriched.filter(s => (s.shift || 'shift_1_day') === 'shift_1_day').length,
-    shift_2_night: enriched.filter(s => s.shift === 'shift_2_night').length
+    shift_2_night: enriched.filter(s => s.shift === 'shift_2_night').length,
+    // Daily Mandi 3000 Quintal Quota & Vehicle Statistics
+    daily_capacity_limit: DAILY_CAPACITY_QUINTALS,
+    quintals_booked_today: totalQuintalsToday,
+    quintals_remaining_today: Math.max(0, DAILY_CAPACITY_QUINTALS - totalQuintalsToday),
+    capacity_percentage: Math.min(100, Math.round((totalQuintalsToday / DAILY_CAPACITY_QUINTALS) * 100)),
+    vehicles_arrived_today: totalVehiclesCount,
+    // Gate Waiting Distribution (for 3-Farmer Limit Detection)
+    gate_waiting_counts: gateWaitingCounts,
+    has_gate_overload: Object.values(gateWaitingCounts).some(c => c >= 3),
+    // 7-Day Date-wise Mandi Intake Status
+    date_wise_breakdown: computeDateWiseBreakdown(enriched)
   };
 }
 
@@ -70,20 +190,24 @@ exports.streamQueue = async (req, res) => {
   });
   res.write('\n');
 
-  sseClients.push(res);
+  const clientObj = { res, role: req.query.role };
+  sseClients.push(clientObj);
 
   // Send current queue state immediately
   try {
     const allSlots = await db.getAll();
     const enriched = enrichQueueWithPositions(allSlots);
     const summary = computeSummary(enriched);
-    res.write(`event: init\ndata: ${JSON.stringify({ queue: enriched, summary })}\n\n`);
+    const queueToReturn = clientObj.role === 'admin'
+      ? enriched
+      : enriched.filter(s => s.status !== 'cancelled');
+    res.write(`event: init\ndata: ${JSON.stringify({ queue: queueToReturn, summary })}\n\n`);
   } catch (err) {
     console.error('Error sending initial SSE:', err);
   }
 
   req.on('close', () => {
-    sseClients = sseClients.filter(c => c !== res);
+    sseClients = sseClients.filter(c => c !== clientObj);
   });
 };
 
@@ -106,13 +230,35 @@ exports.bookSlot = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Preferred date is required' });
     }
 
+    // STRICT 3000 QUINTALS PER DAY MANDI CAPACITY VALIDATION
+    const allExistingSlots = await db.getAll();
+    const existingBookedForDate = allExistingSlots
+      .filter(s => s.status !== 'cancelled' && s.preferred_date === preferred_date)
+      .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+
+    const requestedQty = Number(quantity);
+    if (existingBookedForDate + requestedQty > DAILY_CAPACITY_QUINTALS) {
+      const remainingQuota = Math.max(0, DAILY_CAPACITY_QUINTALS - existingBookedForDate);
+      return res.status(400).json({
+        success: false,
+        message: `मंडी की दैनिक क्षमता (3000 क्विंटल) पूरी होने वाली है! ${preferred_date} के लिए केवल ${remainingQuota} क्विंटल स्थान शेष है। (Daily Mandi quota of 3000 quintals exceeded. Only ${remainingQuota} quintals available for ${preferred_date}.)`,
+        daily_capacity_limit: DAILY_CAPACITY_QUINTALS,
+        already_booked: existingBookedForDate,
+        remaining_quota: remainingQuota
+      });
+    }
+
+    // Dynamic 3-Farmer Gate Balancing
+    const gateResolution = determineBalancedGate(allExistingSlots, gate_assigned || 'Gate 1');
+    const finalGate = gateResolution.assignedGate;
+
     const newBooking = await db.createBooking({
       farmerName: farmerName.trim(),
       phone: phone ? phone.trim() : '',
       cropType: crop_type.trim(),
       quantity: Number(quantity),
       preferredDate: preferred_date,
-      gateAssigned: gate_assigned || 'Gate 1',
+      gateAssigned: finalGate,
       vehicleNo: vehicle_no ? vehicle_no.trim().toUpperCase() : '',
       shift: shift || 'shift_1_day'
     });
@@ -128,7 +274,11 @@ exports.bookSlot = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Farmer slot booked successfully',
+      message: gateResolution.wasRebalanced
+        ? `किसान स्लॉट सफलतापूर्वक बुक हुआ: ${gateResolution.reason}`
+        : 'Farmer slot booked successfully',
+      was_gate_rebalanced: gateResolution.wasRebalanced,
+      gate_reason: gateResolution.reason || '',
       data: enrichedCurrent
     });
   } catch (err) {
@@ -144,10 +294,16 @@ exports.getQueue = async (req, res) => {
     const enriched = enrichQueueWithPositions(allSlots);
     const summary = computeSummary(enriched);
 
+    const isAdmin = req.query.role === 'admin';
+    // Privacy Rule: Public view hides cancelled tokens; Admin view sees all
+    const queueToReturn = isAdmin
+      ? enriched
+      : enriched.filter(s => s.status !== 'cancelled');
+
     return res.json({
       success: true,
       summary,
-      queue: enriched
+      queue: queueToReturn
     });
   } catch (err) {
     console.error('Error fetching queue:', err);
@@ -188,7 +344,7 @@ exports.callNext = async (req, res) => {
 // 4. PUT /update-status - Update status of a specific token
 exports.updateStatus = async (req, res) => {
   try {
-    const { token_id, tokenId, status } = req.body;
+    const { token_id, tokenId, status, reason, cancellation_reason } = req.body;
     const targetToken = token_id || tokenId || req.query.token_id || req.params.tokenId;
 
     if (!targetToken) {
@@ -198,7 +354,8 @@ exports.updateStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Status is required' });
     }
 
-    const updated = await db.updateStatus(targetToken, status.toLowerCase());
+    const cancelReason = cancellation_reason || reason || '';
+    const updated = await db.updateStatus(targetToken, status.toLowerCase(), cancelReason);
     if (!updated) {
       return res.status(404).json({ success: false, message: `Token ${targetToken} not found` });
     }
@@ -325,3 +482,96 @@ exports.deleteSlot = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Failed to delete slot', error: err.message });
   }
 };
+
+// 9. PUT /change-gate - Admin manually reassigns farmer's gate
+exports.changeGate = async (req, res) => {
+  try {
+    const { token_id, tokenId, gate_assigned, gate } = req.body;
+    const targetToken = token_id || tokenId || req.query.token_id;
+    const newGate = gate_assigned || gate;
+
+    if (!targetToken) {
+      return res.status(400).json({ success: false, message: 'Token ID is required' });
+    }
+    if (!newGate || !ALL_GATES.includes(newGate)) {
+      return res.status(400).json({ success: false, message: 'Valid Gate (Gate 1, Gate 2, Gate 3) is required' });
+    }
+
+    const updated = await db.updateGate(targetToken, newGate);
+    if (!updated) {
+      return res.status(404).json({ success: false, message: `Token ${targetToken} not found` });
+    }
+
+    const allSlots = await db.getAll();
+    const enriched = enrichQueueWithPositions(allSlots);
+    const summary = computeSummary(enriched);
+    const updatedEnriched = enriched.find(s => s.token_id === updated.token_id) || updated;
+
+    broadcastQueueUpdate('queue_update', { queue: enriched, summary });
+
+    return res.json({
+      success: true,
+      message: `Token ${targetToken} gate changed to ${newGate}`,
+      data: updatedEnriched
+    });
+  } catch (err) {
+    console.error('Error changing gate:', err);
+    return res.status(500).json({ success: false, message: 'Failed to change gate', error: err.message });
+  }
+};
+
+// 10. POST /rebalance-gates - Dynamically balance gates if any gate has > 3 waiting farmers
+exports.rebalanceGates = async (req, res) => {
+  try {
+    const allSlots = await db.getAll();
+    const waitingSlots = allSlots.filter(s => s.status === 'waiting');
+
+    const rebalancedTokens = [];
+    const gateQueues = {
+      'Gate 1': waitingSlots.filter(s => (s.gate_assigned || 'Gate 1') === 'Gate 1'),
+      'Gate 2': waitingSlots.filter(s => s.gate_assigned === 'Gate 2'),
+      'Gate 3': waitingSlots.filter(s => s.gate_assigned === 'Gate 3')
+    };
+
+    // Redistribute excess waiting farmers (> 3) to available gates (< 3)
+    for (const overloadedGate of ALL_GATES) {
+      while (gateQueues[overloadedGate].length > 3) {
+        const availableGate = ALL_GATES.find(g => gateQueues[g].length < 3);
+        if (!availableGate) break; // All gates full
+
+        const farmerToMove = gateQueues[overloadedGate].pop();
+        gateQueues[availableGate].push(farmerToMove);
+
+        await db.updateGate(farmerToMove.token_id, availableGate);
+        rebalancedTokens.push({
+          token_id: farmerToMove.token_id,
+          farmer_name: farmerToMove.farmer_name,
+          from: overloadedGate,
+          to: availableGate
+        });
+      }
+    }
+
+    const refreshedSlots = await db.getAll();
+    const enriched = enrichQueueWithPositions(refreshedSlots);
+    const summary = computeSummary(enriched);
+
+    broadcastQueueUpdate('queue_update', { queue: enriched, summary });
+
+    return res.json({
+      success: true,
+      rebalanced_count: rebalancedTokens.length,
+      rebalanced_tokens: rebalancedTokens,
+      message: rebalancedTokens.length > 0
+        ? `${rebalancedTokens.length} किसानों के गेट संतुलित किए गए। (Rebalanced ${rebalancedTokens.length} waiting farmers)`
+        : 'सभी गेट पहले से संतुलित हैं। (All gates are already balanced with <= 3 waiting)'
+    });
+  } catch (err) {
+    console.error('Error rebalancing gates:', err);
+    return res.status(500).json({ success: false, message: 'Failed to rebalance gates', error: err.message });
+  }
+};
+
+exports.determineBalancedGate = determineBalancedGate;
+exports.computeDateWiseBreakdown = computeDateWiseBreakdown;
+

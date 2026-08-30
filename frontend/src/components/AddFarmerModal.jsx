@@ -60,6 +60,19 @@ export default function AddFarmerModal({ isOpen, onClose, onFarmerAdded }) {
       return;
     }
 
+    // Check 3000 quintal daily quota
+    const allLocal = storage.mergeQueueWithLocalData([]);
+    const alreadyBooked = allLocal
+      .filter(s => s.status !== 'cancelled' && s.preferred_date === preferredDate)
+      .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+
+    const reqQty = Number(quantity);
+    if (alreadyBooked + reqQty > 3000) {
+      const remaining = Math.max(0, 3000 - alreadyBooked);
+      setError(`मंडी की दैनिक क्षमता (3000 क्विंटल) पूरी होने वाली है! ${preferredDate} के लिए केवल ${remaining} क्विंटल स्थान शेष है।`);
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
