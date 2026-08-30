@@ -200,32 +200,40 @@ export default function QueueCard({
           )}
         </div>
 
-        {/* Crop & Quantity */}
-        <div className="flex items-center justify-between text-slate-600 text-xs pt-1">
-          <div className="flex items-center space-x-1.5">
-            <Wheat className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-            <span>{slot.crop_type}</span>
-          </div>
-          <div className="flex items-center space-x-1 font-mono font-medium text-slate-700">
-            <Scale className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-            <span>{slot.quantity} Qtl</span>
-          </div>
-        </div>
+        {/* Date Slot & Crop Information Box */}
+        <div className="bg-gradient-to-r from-emerald-50/70 via-teal-50/50 to-slate-50 border border-emerald-200/80 rounded-xl p-2.5 space-y-2 mt-1.5 shadow-2xs">
+          {/* Row 1: Date Slot and Shift */}
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center space-x-1.5">
+              <Calendar className="w-3.5 h-3.5 text-emerald-700 flex-shrink-0" />
+              <span className="text-slate-600 font-bold text-[11px]">दिनांक स्लॉट:</span>
+              <strong className="text-emerald-950 font-mono font-black text-xs bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 rounded-md shadow-2xs">
+                {slot.preferred_date || (slot.created_at ? slot.created_at.split('T')[0] : 'Today')}
+              </strong>
+            </div>
 
-        {/* Farmer Scheduled Booking Date */}
-        <div className="flex items-center justify-between text-slate-600 text-xs pt-1.5 border-t border-slate-100">
-          <div className="flex items-center space-x-1.5">
-            <Calendar className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
-            <span className="text-slate-500 font-medium">बुकिंग दिनांक:</span>
-            <strong className="text-slate-900 font-mono font-bold bg-blue-50 text-blue-900 border border-blue-200/70 px-1.5 py-0.2 rounded text-[11px]">
-              {slot.preferred_date || (slot.created_at ? slot.created_at.split('T')[0] : 'Today')}
-            </strong>
+            {slot.shift && (
+              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md border ${
+                slot.shift === 'shift_2_night'
+                  ? 'bg-indigo-100 text-indigo-900 border-indigo-300'
+                  : 'bg-amber-100 text-amber-900 border-amber-300'
+              }`}>
+                {slot.shift === 'shift_2_night' ? '🌙 Shift 2 (1pm-8pm)' : '🌅 Shift 1 (6am-11am)'}
+              </span>
+            )}
           </div>
-          {slot.shift && (
-            <span className="text-[10px] text-slate-400 font-medium">
-              {slot.shift === 'shift_2_night' ? '1:00 PM – 8:00 PM' : '6:00 AM – 11:00 AM'}
-            </span>
-          )}
+
+          {/* Row 2: Crop Type & Weight in Quintals */}
+          <div className="flex items-center justify-between text-xs pt-1.5 border-t border-emerald-200/60">
+            <div className="flex items-center space-x-1.5 font-bold text-slate-900">
+              <Wheat className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+              <span className="text-xs">{slot.crop_type}</span>
+            </div>
+            <div className="flex items-center space-x-1 font-mono font-black text-xs text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs">
+              <Scale className="w-3 h-3 text-slate-500" />
+              <span>{slot.quantity} क्विंटल (Qtl)</span>
+            </div>
+          </div>
         </div>
       </div>
 

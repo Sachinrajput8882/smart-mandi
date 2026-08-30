@@ -81,6 +81,15 @@ function computeDateWiseBreakdown(enriched) {
     if (remainingQtl === 0) status = 'full';
     else if (percent >= 70) status = 'fast_filling';
 
+    // Crop breakdown for this specific date
+    const cropMap = {};
+    activeForDate.forEach(s => {
+      const c = s.crop_type || 'Other';
+      if (!cropMap[c]) cropMap[c] = { crop: c, quantity: 0, farmers: 0 };
+      cropMap[c].quantity += Number(s.quantity) || 0;
+      cropMap[c].farmers += 1;
+    });
+
     breakdown.push({
       date: dateStr,
       is_today: i === 0,
@@ -90,7 +99,8 @@ function computeDateWiseBreakdown(enriched) {
       capacity_percentage: percent,
       vehicles_count: vehicles,
       farmers_count: activeForDate.length,
-      status
+      status,
+      crops: Object.values(cropMap).sort((a, b) => b.quantity - a.quantity)
     });
   }
   return breakdown;
@@ -311,14 +321,17 @@ exports.getQueue = async (req, res) => {
   }
 };
 
-// 3. PUT /next - Call next farmer in queue
+// 3. PUT /next - Call next farmer in queue (optionally filtered by operational date)
 exports.callNext = async (req, res) => {
   try {
-    const nextSlot = await db.callNextWaiting();
+    const targetDate = req.body?.date || req.query?.date || req.body?.preferred_date || null;
+    const nextSlot = await db.callNextWaiting(targetDate);
     if (!nextSlot) {
       return res.status(404).json({
         success: false,
-        message: 'No farmers currently in waiting queue'
+        message: targetDate && targetDate !== 'all'
+          ? `${targetDate} के लिए कतार में कोई प्रतीक्षारत किसान नहीं है। (No waiting farmers for date ${targetDate})`
+          : 'No farmers currently in waiting queue'
       });
     }
 

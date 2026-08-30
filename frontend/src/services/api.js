@@ -113,11 +113,13 @@ export const api = {
     }
   },
 
-  // 3. PUT /next - call next farmer
-  async callNext() {
+  // 3. PUT /next - call next farmer (optionally for a specific date)
+  async callNext(targetDate = '') {
+    const body = targetDate && targetDate !== 'all' ? JSON.stringify({ date: targetDate }) : undefined;
     const res = await fetch(`${API_BASE}/next`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || 'Failed to call next farmer');

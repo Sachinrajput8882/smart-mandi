@@ -257,6 +257,16 @@ export default function TokenTracker({ initialToken, onNavigateToBooking }) {
                 <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold border uppercase tracking-wider mt-1 ${config.badgeClass}`}>
                   Status: {config.label} ({config.labelHindi})
                 </span>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 justify-center sm:justify-start text-xs font-bold">
+                  <span className="px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1">
+                    <Calendar className="w-3 h-3 text-emerald-700" />
+                    <span>स्लॉट: {activeTokenData.preferred_date || 'Today'}</span>
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                    <Wheat className="w-3 h-3 text-amber-700" />
+                    <span>{activeTokenData.crop_type} ({activeTokenData.quantity} Qtl)</span>
+                  </span>
+                </div>
               </div>
 
               {/* QR Code */}
@@ -366,12 +376,14 @@ export default function TokenTracker({ initialToken, onNavigateToBooking }) {
                 </div>
               )}
 
-              <div className="flex justify-between p-3.5">
-                <span className="text-slate-500 flex items-center space-x-2">
-                  <Calendar className="w-4 h-4 text-slate-400" />
-                  <span>Slot Date</span>
+              <div className="flex justify-between items-center p-3.5 bg-emerald-50/60">
+                <span className="text-emerald-900 font-bold flex items-center space-x-2">
+                  <Calendar className="w-4 h-4 text-emerald-600" />
+                  <span>बुकिंग दिनांक स्लॉट (Slot Date)</span>
                 </span>
-                <span className="font-bold text-slate-800 font-mono">{activeTokenData.preferred_date}</span>
+                <span className="font-extrabold text-emerald-950 font-mono text-xs bg-emerald-200/80 px-2.5 py-1 rounded-md border border-emerald-300">
+                  {activeTokenData.preferred_date || 'Today'}
+                </span>
               </div>
             </div>
 

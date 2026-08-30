@@ -38,10 +38,11 @@ export default function LiveQueue({
   lastUpdated,
   onAnnounce
 }) {
+  const todayStr = new Date().toISOString().split('T')[0];
   const [filter, setFilter] = useState('all');
   const [gateFilter, setGateFilter] = useState('all');
   const [shiftFilter, setShiftFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState(todayStr);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [countdown, setCountdown] = useState(4);
 
@@ -51,7 +52,6 @@ export default function LiveQueue({
   const [addFarmerOpen, setAddFarmerOpen] = useState(false);
 
   // Date-wise Quota Breakdown (Today + next 7 days)
-  const todayStr = new Date().toISOString().split('T')[0];
   const dateBreakdown = (summary?.date_wise_breakdown && summary.date_wise_breakdown.length > 0)
     ? summary.date_wise_breakdown
     : (() => {
@@ -121,6 +121,20 @@ export default function LiveQueue({
     if (filter === 'real') return Boolean(item.is_manual);
     return (item.status || 'waiting').toLowerCase() === filter.toLowerCase();
   });
+
+  // Crops arriving / booked for the selected date view
+  const activeCropSummary = (() => {
+    const map = {};
+    filteredQueue.forEach(s => {
+      if (s.status === 'cancelled') return;
+      const c = s.crop_type || 'Other';
+      if (!map[c]) map[c] = { crop: c, quantity: 0, farmers: 0 };
+      map[c].quantity += Number(s.quantity) || 0;
+      map[c].farmers += 1;
+    });
+    return Object.values(map).sort((a, b) => b.quantity - a.quantity);
+  })();
+  const totalCropQty = activeCropSummary.reduce((sum, c) => sum + c.quantity, 0);
 
   // Current active/called farmers for big TV board
   const currentlyCalled = queue.filter(item => item.status === 'called');
@@ -634,6 +648,16 @@ export default function LiveQueue({
           <span>Date Filter / दिनांक:</span>
         </span>
         <button
+          onClick={() => setDateFilter(todayStr)}
+          className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center space-x-1 ${
+            dateFilter === todayStr
+              ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/30'
+              : 'bg-white text-slate-700 hover:bg-emerald-50 border border-slate-200'
+          }`}
+        >
+          <span>🌅 आज (Today)</span>
+        </button>
+        <button
           onClick={() => setDateFilter('all')}
           className={`px-3 py-1.5 rounded-xl font-bold transition ${
             dateFilter === 'all'
@@ -643,7 +667,7 @@ export default function LiveQueue({
         >
           सभी तारीखें (All Dates)
         </button>
-        {dateBreakdown.map(d => (
+        {dateBreakdown.slice(1).map(d => (
           <button
             key={d.date}
             onClick={() => setDateFilter(d.date)}
@@ -661,6 +685,50 @@ export default function LiveQueue({
             </span>
           </button>
         ))}
+
+        {/* Custom Date Input for Farmers */}
+        <div className="flex items-center space-x-1 bg-white px-2 py-1 rounded-xl border border-slate-200 ml-auto">
+          <span className="text-[11px] text-slate-500 font-medium">तारीख चुनें:</span>
+          <input
+            type="date"
+            value={dateFilter === 'all' ? '' : dateFilter}
+            onChange={(e) => setDateFilter(e.target.value || 'all')}
+            className="text-xs font-mono font-bold rounded px-1.5 py-0.5 border border-slate-300 text-slate-800 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+          />
+        </div>
+      </div>
+
+      {/* 🌾 Crops Booked / Arriving for the Selected Date */}
+      <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50/80 via-teal-50/60 to-slate-50 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-slate-700 font-bold flex items-center gap-1 text-[11px] uppercase tracking-wider">
+            <Wheat className="w-3.5 h-3.5 text-emerald-600" />
+            <span>इस तारीख की फसल आवक ({dateFilter === 'all' ? 'सभी दिन' : dateFilter}):</span>
+          </span>
+
+          {activeCropSummary.length === 0 ? (
+            <span className="text-slate-500 italic text-[11px]">
+              इस तारीख के लिए कोई फसल स्लॉट बुक नहीं है (No crops scheduled)
+            </span>
+          ) : (
+            activeCropSummary.map(c => (
+              <span
+                key={c.crop}
+                className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-lg bg-white border border-emerald-300 text-slate-800 font-medium text-[11px] shadow-2xs"
+              >
+                <span className="font-bold text-emerald-800">{c.crop}</span>
+                <span className="text-slate-300">|</span>
+                <span className="font-mono text-slate-900 font-bold">{c.quantity} Qtl</span>
+                <span className="text-[10px] text-slate-500 font-mono">({c.farmers} किसान)</span>
+              </span>
+            ))
+          )}
+        </div>
+
+        <div className="flex items-center space-x-3 text-[11px] text-slate-600 flex-shrink-0">
+          <span>कुल टोकन: <strong className="text-slate-900 font-mono">{filteredQueue.length}</strong></span>
+          <span>कुल मात्रा: <strong className="text-emerald-700 font-mono">{totalCropQty} Qtl</strong></span>
+        </div>
       </div>
 
       {/* 3 Gates Selector Bar */}

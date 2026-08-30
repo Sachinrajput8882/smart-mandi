@@ -381,12 +381,16 @@ const db = {
     return item;
   },
 
-  async callNextWaiting() {
+  async callNextWaiting(targetDate = null) {
     const now = new Date().toISOString();
 
     if (useMongo) {
+      const query = { status: 'waiting' };
+      if (targetDate && targetDate !== 'all') {
+        query.preferred_date = targetDate;
+      }
       const nextItem = await QueueSlot.findOneAndUpdate(
-        { status: 'waiting' },
+        query,
         { status: 'called' },
         { sort: { created_at: 1, _id: 1 }, new: true }
       ).lean();
@@ -400,12 +404,15 @@ const db = {
     }
 
     if (usePostgres) {
-      const findRes = await pgPool.query(
-        `SELECT * FROM queue_slots 
-         WHERE status = 'waiting' 
-         ORDER BY id ASC 
-         LIMIT 1`
-      );
+      let queryStr = `SELECT * FROM queue_slots WHERE status = 'waiting'`;
+      const queryParams = [];
+      if (targetDate && targetDate !== 'all') {
+        queryParams.push(targetDate);
+        queryStr += ` AND preferred_date = $1`;
+      }
+      queryStr += ` ORDER BY id ASC LIMIT 1`;
+
+      const findRes = await pgPool.query(queryStr, queryParams);
       if (findRes.rows.length === 0) return null;
 
       const nextItem = findRes.rows[0];
@@ -420,7 +427,13 @@ const db = {
     }
 
     const data = readLocalData();
-    const nextItem = data.find(d => d.status === 'waiting');
+    const nextItem = data.find(d => {
+      if (d.status !== 'waiting') return false;
+      if (targetDate && targetDate !== 'all') {
+        return d.preferred_date === targetDate;
+      }
+      return true;
+    });
     if (!nextItem) return null;
 
     nextItem.status = 'called';

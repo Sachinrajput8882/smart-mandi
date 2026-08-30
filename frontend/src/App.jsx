@@ -153,9 +153,9 @@ export default function App() {
     setActiveTab('track');
   };
 
-  // Admin action: Call Next
-  const handleCallNext = async () => {
-    const res = await api.callNext();
+  // Admin action: Call Next (supports optional date filter)
+  const handleCallNext = async (targetDate = '') => {
+    const res = await api.callNext(targetDate);
     if (res && res.data) {
       handleAnnounce(res.data);
     }

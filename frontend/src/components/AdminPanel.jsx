@@ -58,10 +58,11 @@ export default function AdminPanel({
   const [paymentModalSlot, setPaymentModalSlot] = useState(null);
   const [cancelModalSlot, setCancelModalSlot] = useState(null);
   const [cancelModalMode, setCancelModalMode] = useState('confirm'); // 'confirm' or 'view'
+  const todayStr = new Date().toISOString().split('T')[0];
   const [realOnlyFilter, setRealOnlyFilter] = useState(false);
   const [gateFilter, setGateFilter] = useState('all');
   const [shiftFilter, setShiftFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState(todayStr);
 
   const handleLogin = (e) => {
     e?.preventDefault();
@@ -84,17 +85,28 @@ export default function AdminPanel({
     try {
       setCallingNext(true);
       setActionMessage(null);
-      const res = await onCallNext();
-      if (res && res.data) {
+      // Priority: Call the first waiting farmer for the selected date
+      if (waitingFarmers.length > 0) {
+        const targetFarmer = waitingFarmers[0];
+        await onUpdateStatus(targetFarmer.token_id, 'called');
+        if (onAnnounce) onAnnounce(targetFarmer);
         setActionMessage({
           type: 'success',
-          text: `Token ${res.data.token_id} (${res.data.farmer_name}) called to Mandi ${res.data.gate_assigned || 'Gate 1'}!`
+          text: `Token ${targetFarmer.token_id} (${targetFarmer.farmer_name} • ${targetFarmer.crop_type}) called to Mandi ${targetFarmer.gate_assigned || 'Gate 1'} for date ${targetFarmer.preferred_date || todayStr}!`
         });
+      } else {
+        const res = await onCallNext(dateFilter);
+        if (res && res.data) {
+          setActionMessage({
+            type: 'success',
+            text: `Token ${res.data.token_id} (${res.data.farmer_name}) called to Mandi ${res.data.gate_assigned || 'Gate 1'}!`
+          });
+        }
       }
     } catch (err) {
       setActionMessage({
         type: 'error',
-        text: err.message || 'No waiting farmers in queue.'
+        text: err.message || `No waiting farmers for date ${dateFilter === 'all' ? 'any' : dateFilter}.`
       });
     } finally {
       setCallingNext(false);
@@ -164,7 +176,6 @@ export default function AdminPanel({
   };
 
   // Filter queue by Real Only, Gate Filter, Shift Filter, and Date Filter
-  const todayStr = new Date().toISOString().split('T')[0];
   let displayedQueue = queue;
   if (realOnlyFilter) {
     displayedQueue = displayedQueue.filter(item => item.is_manual);
@@ -178,6 +189,21 @@ export default function AdminPanel({
   if (dateFilter !== 'all') {
     displayedQueue = displayedQueue.filter(item => (item.preferred_date || (item.created_at ? item.created_at.split('T')[0] : todayStr)) === dateFilter);
   }
+
+  // Crops booked for the currently filtered date / view
+  const activeCropSummary = (() => {
+    const map = {};
+    displayedQueue.forEach(s => {
+      if (s.status === 'cancelled') return;
+      const c = s.crop_type || 'Other';
+      if (!map[c]) map[c] = { crop: c, quantity: 0, farmers: 0 };
+      map[c].quantity += Number(s.quantity) || 0;
+      map[c].farmers += 1;
+    });
+    return Object.values(map).sort((a, b) => b.quantity - a.quantity);
+  })();
+
+  const totalCropQty = activeCropSummary.reduce((sum, c) => sum + c.quantity, 0);
 
   // Calculate unique booking dates in queue
   const uniqueBookingDates = Array.from(new Set(queue.map(s => s.preferred_date || (s.created_at ? s.created_at.split('T')[0] : todayStr)).filter(Boolean))).sort();
@@ -486,6 +512,120 @@ export default function AdminPanel({
           </div>
         )}
 
+        {/* 📅 Operational Date Selector & Crop Breakdown Card (Request Accept Area) */}
+        <div className="mt-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-emerald-500/50 shadow-xl space-y-3.5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h4 className="text-sm font-black text-white uppercase tracking-wide">
+                    कार्य दिवस चयन (Select Date to Accept / Process Requests)
+                  </h4>
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-500/50">
+                    {dateFilter === 'all' ? 'All Dates' : dateFilter === todayStr ? 'आज (Today)' : dateFilter}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  जिस दिन का स्लॉट चुनेंगे, नीचे के एक्शन बटन ("1. Call Farmer" आदि) उसी दिन के किसानों को कतार में प्रोसेस करेंगे।
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Date Pills & Date Picker Input */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setDateFilter(todayStr)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                  dateFilter === todayStr
+                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/40 ring-2 ring-emerald-400/40'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                }`}
+              >
+                <span>🌅 आज (Today)</span>
+              </button>
+
+              {(() => {
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                const tomorrowStr = tomorrow.toISOString().split('T')[0];
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setDateFilter(tomorrowStr)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                      dateFilter === tomorrowStr
+                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/40 ring-2 ring-emerald-400/40'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                    }`}
+                  >
+                    <span>🌙 कल (Tomorrow)</span>
+                  </button>
+                );
+              })()}
+
+              <button
+                type="button"
+                onClick={() => setDateFilter('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  dateFilter === 'all'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-900/40 ring-2 ring-blue-400/40'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                }`}
+              >
+                🌐 All Dates
+              </button>
+
+              {/* Custom Date Input */}
+              <div className="flex items-center space-x-1 bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700">
+                <span className="text-[11px] text-slate-400 font-medium">अन्य तारीख:</span>
+                <input
+                  type="date"
+                  value={dateFilter === 'all' ? '' : dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value || 'all')}
+                  className="bg-slate-900 text-white text-xs font-mono font-bold rounded-lg px-2 py-0.5 border border-slate-600 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 🌾 Crops Booked for This Selected Date */}
+          <div className="pt-2.5 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-slate-400 font-bold flex items-center gap-1 text-[11px] uppercase tracking-wider">
+                <Wheat className="w-3.5 h-3.5 text-amber-400" />
+                <span>इस दिन की बुक फसलें ({dateFilter === 'all' ? 'सभी दिन' : dateFilter}):</span>
+              </span>
+
+              {activeCropSummary.length === 0 ? (
+                <span className="text-slate-500 italic text-[11px]">
+                  इस तारीख के लिए कोई फसल बुक नहीं है (No crops scheduled)
+                </span>
+              ) : (
+                activeCropSummary.map(c => (
+                  <span
+                    key={c.crop}
+                    className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-medium text-[11px]"
+                  >
+                    <span className="font-bold text-emerald-300">{c.crop}</span>
+                    <span className="text-slate-400">|</span>
+                    <span className="font-mono text-amber-300 font-bold">{c.quantity} Qtl</span>
+                    <span className="text-[10px] text-slate-400 font-mono">({c.farmers} किसान)</span>
+                  </span>
+                ))
+              )}
+            </div>
+
+            <div className="flex items-center space-x-3 text-[11px] text-slate-400 flex-shrink-0">
+              <span>प्रतीक्षारत: <strong className="text-amber-400 font-mono">{waitingFarmers.length} किसान</strong></span>
+              <span>कुल वजन: <strong className="text-emerald-400 font-mono">{totalCropQty} Qtl</strong></span>
+            </div>
+          </div>
+        </div>
+
         {/* Primary Admin Dispatch Buttons - 4 Stage Workflow */}
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Button 1: Call Next Farmer */}
@@ -502,10 +642,10 @@ export default function AdminPanel({
               )}
               <span className="text-base">1. Call Farmer</span>
             </div>
-            <span className="text-[11px] text-blue-200 font-normal">
+            <span className="text-[11px] text-blue-200 font-normal text-center">
               {waitingFarmers.length > 0
-                ? `Advances ${waitingFarmers[0].token_id} to Called`
-                : 'No farmers waiting'}
+                ? `Call ${waitingFarmers[0].token_id} (${waitingFarmers[0].farmer_name} • ${waitingFarmers[0].crop_type})`
+                : `No waiting on ${dateFilter === 'all' ? 'any date' : dateFilter}`}
             </span>
           </button>
 
