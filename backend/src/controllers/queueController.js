@@ -107,11 +107,15 @@ function computeDateWiseBreakdown(enriched) {
 }
 
 // 3 Farmers Waiting per Gate Rule: Automatic Dynamic Load Balancing
-function determineBalancedGate(slots, requestedGate = 'Gate 1') {
+function determineBalancedGate(slots, requestedGate = 'Gate 1', targetDate = null) {
   const cleanRequested = ALL_GATES.includes(requestedGate) ? requestedGate : 'Gate 1';
 
-  // Count active waiting farmers at each gate
-  const waitingSlots = slots.filter(s => s.status === 'waiting');
+  // Count active waiting farmers at each gate for this operational date
+  const waitingSlots = slots.filter(s => {
+    if ((s.status || '').toLowerCase() !== 'waiting') return false;
+    if (targetDate && s.preferred_date && s.preferred_date !== targetDate) return false;
+    return true;
+  });
 
   const gateCounts = {
     'Gate 1': waitingSlots.filter(s => (s.gate_assigned || 'Gate 1') === 'Gate 1').length,
@@ -258,8 +262,8 @@ exports.bookSlot = async (req, res) => {
       });
     }
 
-    // Dynamic 3-Farmer Gate Balancing
-    const gateResolution = determineBalancedGate(allExistingSlots, gate_assigned || 'Gate 1');
+    // Dynamic 3-Farmer Gate Balancing for this booked date
+    const gateResolution = determineBalancedGate(allExistingSlots, gate_assigned || 'Gate 1', preferred_date);
     const finalGate = gateResolution.assignedGate;
 
     const newBooking = await db.createBooking({
@@ -392,16 +396,27 @@ exports.updateStatus = async (req, res) => {
   }
 };
 
-// 5. GET /queue/:tokenId - Get details for a specific token
+// 5. GET /queue/:tokenId - Get details for a specific token (or by phone / digits)
 exports.getByToken = async (req, res) => {
   try {
     const { tokenId } = req.params;
+    const cleanToken = (tokenId || '').trim().toUpperCase();
+    const cleanDigits = cleanToken.replace(/\D/g, '');
     const allSlots = await db.getAll();
     const enriched = enrichQueueWithPositions(allSlots);
 
-    const match = enriched.find(s => s.token_id.toUpperCase() === tokenId.toUpperCase());
+    const match = enriched.find(s => {
+      const sToken = (s.token_id || '').toUpperCase();
+      const sPhone = (s.phone || '').replace(/\D/g, '').slice(-10);
+      return (
+        sToken === cleanToken ||
+        sToken === `TKN${cleanToken}` ||
+        (cleanDigits.length === 10 && sPhone === cleanDigits)
+      );
+    });
+
     if (!match) {
-      return res.status(404).json({ success: false, message: `Token ${tokenId} not found` });
+      return res.status(404).json({ success: false, message: `टोकन या मोबाइल नंबर "${tokenId}" नहीं मिला (Token or phone not found)` });
     }
 
     return res.json({

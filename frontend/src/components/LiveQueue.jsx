@@ -39,10 +39,11 @@ export default function LiveQueue({
   onAnnounce
 }) {
   const todayStr = new Date().toISOString().split('T')[0];
+  const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split('T')[0];
   const [filter, setFilter] = useState('all');
   const [gateFilter, setGateFilter] = useState('all');
   const [shiftFilter, setShiftFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState(todayStr);
+  const [dateFilter, setDateFilter] = useState('all');
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [countdown, setCountdown] = useState(4);
 
@@ -818,6 +819,59 @@ export default function LiveQueue({
           <span>🌙 Shift 2: Night (1:00 PM – 8:00 PM)</span>
           <span className="text-[10px] px-1.5 py-0.2 bg-black/10 rounded-full font-mono">{shift2Count}</span>
         </button>
+      </div>
+
+      {/* Date Filter Bar */}
+      <div className="flex flex-wrap items-center gap-2 bg-blue-50/80 p-2 rounded-2xl border border-blue-200 text-xs">
+        <div className="flex items-center space-x-1.5 px-2 text-blue-900 font-bold uppercase tracking-wider text-[11px]">
+          <Calendar className="w-3.5 h-3.5 text-blue-700" />
+          <span>Date View / दिनांक चयन:</span>
+        </div>
+        <button
+          onClick={() => setDateFilter('all')}
+          className={`px-3 py-1.5 rounded-xl font-bold transition ${
+            dateFilter === 'all'
+              ? 'bg-blue-700 text-white shadow-sm'
+              : 'bg-white text-blue-900 hover:bg-blue-100/70 border border-blue-200'
+          }`}
+        >
+          All Dates ({queue.filter(s => s.status !== 'cancelled').length})
+        </button>
+        <button
+          onClick={() => setDateFilter(todayStr)}
+          className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center space-x-1.5 ${
+            dateFilter === todayStr
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'bg-white text-emerald-800 hover:bg-emerald-50 border border-emerald-200'
+          }`}
+        >
+          <span>🌅 आज (Today)</span>
+          <span className="text-[10px] px-1.5 py-0.2 bg-black/10 rounded-full font-mono">
+            {queue.filter(s => s.status !== 'cancelled' && (s.preferred_date === todayStr || (s.created_at && s.created_at.startsWith(todayStr)))).length}
+          </span>
+        </button>
+        <button
+          onClick={() => setDateFilter(tomorrowStr)}
+          className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center space-x-1.5 ${
+            dateFilter === tomorrowStr
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'bg-white text-indigo-900 hover:bg-indigo-50 border border-indigo-200'
+          }`}
+        >
+          <span>🌙 कल (Tomorrow)</span>
+          <span className="text-[10px] px-1.5 py-0.2 bg-black/10 rounded-full font-mono">
+            {queue.filter(s => s.status !== 'cancelled' && s.preferred_date === tomorrowStr).length}
+          </span>
+        </button>
+        <div className="flex items-center space-x-1.5 bg-white px-2.5 py-1 rounded-xl border border-blue-200 ml-auto shadow-2xs">
+          <span className="text-[11px] font-semibold text-slate-500">Pick Date:</span>
+          <input
+            type="date"
+            value={dateFilter === 'all' ? '' : dateFilter}
+            onChange={(e) => setDateFilter(e.target.value || 'all')}
+            className="text-xs font-bold font-mono text-slate-800 bg-transparent outline-none cursor-pointer"
+          />
+        </div>
       </div>
 
       {/* Queue Cards Grid */}

@@ -181,16 +181,26 @@ export const api = {
     }
   },
 
-  // 5. GET /queue/:tokenId - get single token info
+  // 5. GET /queue/:tokenId - get single token info (or by phone / digits)
   async getByToken(tokenId) {
     try {
-      const res = await fetch(`${API_BASE}/queue/${tokenId}`);
+      const res = await fetch(`${API_BASE}/queue/${encodeURIComponent(tokenId.trim())}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to fetch token');
       return json;
     } catch (err) {
       const all = storage.mergeQueueWithLocalData([]);
-      const found = all.find(s => s.token_id?.toUpperCase() === tokenId?.toUpperCase());
+      const clean = tokenId.trim().toUpperCase();
+      const cleanDigits = clean.replace(/\D/g, '');
+      const found = all.find(s => {
+        const sToken = (s.token_id || '').toUpperCase();
+        const sPhone = (s.phone || '').replace(/\D/g, '').slice(-10);
+        return (
+          sToken === clean ||
+          sToken === `TKN${clean}` ||
+          (cleanDigits.length === 10 && sPhone === cleanDigits)
+        );
+      });
       if (found) return { success: true, data: found };
       throw err;
     }

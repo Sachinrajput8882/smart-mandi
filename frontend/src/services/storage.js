@@ -113,14 +113,28 @@ export const storage = {
     // Filter out dummy tokens, dummy names, and locally deleted tokens
     let combined = [...serverQueue].filter(s => !isDummyFarmer(s) && !deleted.includes(s.token_id?.toUpperCase()));
 
-    // Apply status overrides to server items
+    // Apply status overrides to server items only if override is newer than server update
+    let overridesModified = false;
     combined = combined.map(item => {
       const override = overrides[item.token_id?.toUpperCase()];
       if (override) {
-        return { ...item, status: override.status, updated_at: override.updated_at };
+        const itemUpdated = item.updated_at ? new Date(item.updated_at).getTime() : 0;
+        const overrideUpdated = override.updated_at ? new Date(override.updated_at).getTime() : 0;
+        // Only apply if override is distinctly newer than server
+        if (overrideUpdated > itemUpdated) {
+          return { ...item, status: override.status, updated_at: override.updated_at };
+        } else {
+          // Server record is equal or newer, purge stale override
+          delete overrides[item.token_id?.toUpperCase()];
+          overridesModified = true;
+        }
       }
       return item;
     });
+
+    if (overridesModified) {
+      setJson(STORAGE_KEYS.STATUS_OVERRIDES, overrides);
+    }
 
     // Add any local manual farmers missing from the server
     const serverTokens = new Set(combined.map(s => s.token_id?.toUpperCase()));

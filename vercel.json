@@ -7,7 +7,11 @@
     { "source": "/queue", "destination": "/api/index.js" },
     { "source": "/next", "destination": "/api/index.js" },
     { "source": "/update-status", "destination": "/api/index.js" },
+    { "source": "/change-gate", "destination": "/api/index.js" },
+    { "source": "/rebalance-gates", "destination": "/api/index.js" },
     { "source": "/status", "destination": "/api/index.js" },
-    { "source": "/auth/(.*)", "destination": "/api/index.js" }
+    { "source": "/auth/(.*)", "destination": "/api/index.js" },
+    { "source": "/analytics", "destination": "/api/index.js" },
+    { "source": "/health", "destination": "/api/index.js" }
   ]
 }

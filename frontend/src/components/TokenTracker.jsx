@@ -100,7 +100,7 @@ export default function TokenTracker({ initialToken, onNavigateToBooking }) {
               type="text"
               value={tokenInput}
               onChange={(e) => setTokenInput(e.target.value.toUpperCase())}
-              placeholder="Enter Token ID (उदा. TKN1234)"
+              placeholder="टोकन ID (उदा. TKN9745) या 10-अंकीय मोबाइल नंबर"
               className="block w-full pl-10 pr-4 py-3.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-mono text-slate-900 font-bold tracking-wider placeholder-slate-400 text-sm uppercase transition"
             />
           </div>

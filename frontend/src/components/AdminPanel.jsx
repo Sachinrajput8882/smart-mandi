@@ -62,7 +62,7 @@ export default function AdminPanel({
   const [realOnlyFilter, setRealOnlyFilter] = useState(false);
   const [gateFilter, setGateFilter] = useState('all');
   const [shiftFilter, setShiftFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState(todayStr);
+  const [dateFilter, setDateFilter] = useState('all');
 
   const handleLogin = (e) => {
     e?.preventDefault();
